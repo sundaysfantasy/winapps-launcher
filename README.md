@@ -1,3 +1,26 @@
+# 🍴 Fork: WinApps-Launcher (Enhanced)
+This is a **fork** of the original [WinApps-Launcher](https://github.com/winapps-org/winapps) project, now maintained by `sundaysfantasy`.
+
+The primary goal of this fork is to add **integrated application management features** and ensure persistent configuration for user-defined applications, preventing data loss during WinApps reinstalls.
+
+![WinApps Launcher Demonstration](demo.gif)
+
+## New Features ✨: Integrated Application Creation
+
+This fork introduces a unified **`Create New Application`** function directly within the launcher's menu. This feature guides the user through creating a new application entry and automatically registers it with your system.
+
+### How it Works
+
+The function automates the creation of all necessary files across four distinct directories to ensure persistence, correct launching from the `winapps-launcher` menu, and proper desktop integration:
+
+1.  **Persistent Data (`~/.local/bin/winapps-src/apps/<app-name>`):** Creates the master application directory containing the essential `info` file and the icon. This is the **persistent source** that survives WinApps reinstallations.
+2.  **WinApps Directory Copy (`~/.local/share/winapps/apps/<app-name>`):** Creates a physical copy of the application directory in the location WinApps expects. This ensures the main `winapps` script can find the application data and launch it correctly.
+3.  **Launcher Script (`~/.local/bin/<app-name>`):** Creates a dedicated Bash script used by the `winapps-launcher.sh` menu to launch the application using the `winapps explore --app <app-name>` syntax.
+4.  **Desktop Entry (`~/.local/share/applications/<app-name>.desktop`):** Generates a compliant `.desktop` file, allowing the application to appear in your application menu and launch directly with argument support (`winapps <app-name> %F`).
+
+---
+
+
 # WinApps-Launcher
 Taskbar Launcher for [WinApps](https://github.com/winapps-org/winapps).
 Feel free to fork, submit pull requests, open issues and promote this project to grow the WinApps community!

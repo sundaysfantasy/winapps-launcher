@@ -26,6 +26,9 @@ declare -rx CONFIG_FILE="${CONFIG_PATH}/winapps.conf"
 declare -rx COMPOSE_FILE="${CONFIG_PATH}/compose.yaml"
 declare -rx USER_WINAPPS_APPLICATIONS="${APPDATA_PATH}/apps"
 declare -rx SYSTEM_WINAPPS_APPLICATIONS="/usr/local/share/winapps/apps"
+# >>> CALEA TA PERSISTENTĂ (ADAUGARE)
+declare -rx PERSISTENT_APP_SOURCE="$HOME/.local/bin/winapps-src/apps"
+# <<<
 
 # Menu Entries
 declare -rx MENU_APPLICATIONS="Applications!bash -c app_select!${ICONS_PATH}/Applications.svg"
@@ -41,11 +44,19 @@ declare -rx MENU_REFRESH="Refresh Menu!bash -c refresh_menu!${ICONS_PATH}/Refres
 declare -rx MENU_RESET="Reset!bash -c reset_windows!${ICONS_PATH}/Reset.svg"
 declare -rx MENU_RESUME="Resume!bash -c resume_windows!${ICONS_PATH}/Resume.svg"
 declare -rx MENU_HIBERNATE="Hibernate!bash -c hibernate_windows!${ICONS_PATH}/Hibernate.svg"
+# >>> ADĂUGARE NOUĂ AICI
+declare -rx MENU_CREATE_NEW="Create New Application!bash -c create_new_application!${ICONS_PATH}/Add.svg"
+# <<<
 
 # Other
 declare -rx DEFAULT_VM_NAME="RDPWindows"
 declare -rx CONTAINER_NAME="WinApps"
 declare -rx DEFAULT_FLAVOR="docker"
+# >>> CALEA NOUĂ AICI (FĂRĂ $APPDATA_PATH)
+# Observație: Utilizăm $HOME/.local/bin/ pentru a fi exact ca în calea pe care ai specificat-o.
+# Adaugă această linie în secțiunea 'Paths' din winapps-launcher.sh
+declare -rx DEFAULT_APP_SRC="${USER_WINAPPS_APPLICATIONS}/default"
+# <<<
 
 ### GLOBAL VARIABLES ###
 declare -x WINAPPS_PATH="" # Generated programmatically following dependency checks.
@@ -250,7 +261,7 @@ function app_select() {
         --width=300 \
         --height=500 \
         --text="Select Windows Application to Launch:" \
-        --window-icon="${ICONS_PATH}/AppIcon.svg" \
+        --window-icon="${ICONS_PATH}/AppIconLegacy.svg" \
         --hide-column=2 \
         --column="Application Name" \
         --column="File Name")
@@ -269,6 +280,166 @@ function app_select() {
     fi
 }
 export -f app_select
+
+#functie noua
+function show_success_message() {
+    # Afișează un mesaj de succes cu o pictogramă de succes (bifa verde)
+    yad --image="dialog-information" --title="SUCCESS" --text="$1" --width=500 --on-top
+}
+export -f show_success_message
+# Application Creation & Registration (Unified Function - CORE FINAL VERSION)
+function create_new_application() {
+    local APP_FILENAME=""
+    local ICON_PATH=""
+    local FULL_NAME=""
+    local EXECUTABLE=""
+    local CATEGORY=""
+    local USER_DESKTOP_PATH="$HOME/Desktop"
+
+    local WINAPPS_BIN_PATH="$HOME/.local/bin/winapps"
+    local BIN_PATH="$HOME/.local/bin"
+    local WINAPPS_DEFAULT_APPS="${USER_WINAPPS_APPLICATIONS}"
+
+    # 1. COLECTAREA DATELOR NECESARE
+    APP_FILENAME=$(yad --entry --title="WinApps Launcher - Step 1/5: Directory Name" --text="Enter the desired **directory name** (no spaces, e.g., myapp):" --width=400 --on-top)
+    if [ -z "$APP_FILENAME" ]; then show_error_message "Application creation cancelled."; return; fi
+    APP_FILENAME=$(echo "$APP_FILENAME" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]._-')
+    if [ -z "$APP_FILENAME" ]; then show_error_message "ERROR: Directory name is empty or contains <u>only unallowed characters</u>."; return; fi
+
+    FULL_NAME=$(yad --entry --title="WinApps Launcher - Step 2/5: Full Name" --text="Enter **Full Name** for menu display:" --width=400 --on-top --entry-text="$APP_FILENAME")
+    EXECUTABLE=$(yad --entry --title="WinApps Launcher - Step 3/5: Windows Executable Path" --text="Enter **Windows Executable Path** (e.g., C:\\Program Files\\...\\app.exe):" --width=600 --on-top)
+    CATEGORY=$(yad --entry --title="WinApps Launcher - Step 4/5: Category" --text="Enter **Category** (e.g., Office;Utility):" --width=400 --on-top --entry-text="Utility")
+
+    if [ -z "$FULL_NAME" ] || [ -z "$EXECUTABLE" ]; then
+        show_error_message "ERROR: Full Name or Windows Executable Path cannot be empty. Creation cancelled."
+        return
+    fi
+
+    # 2. CREARE DIRECTOR DATE (MASTER COPY - PERSISTENT)
+    local NEW_APP_DIR="${PERSISTENT_APP_SOURCE}/${APP_FILENAME}"
+
+    if [[ -d "$NEW_APP_DIR" ]]; then
+        show_error_message "ERROR: Application directory <i>'${APP_FILENAME}'</i> <u>ALREADY EXISTS</u> at path:\n\n<b>${NEW_APP_DIR}</b>"
+        return
+    fi
+
+    if mkdir -p "$NEW_APP_DIR"; then
+        echo -e "${DEBUG_TEXT}> CREATED NEW APP DATA DIRECTORY (MASTER): '${NEW_APP_DIR}'${RESET_TEXT}"
+    else
+        show_error_message "ERROR: Failed to create new application directory."
+        return
+    fi
+
+    # 3. CREEAZĂ FIȘIERUL INFO
+    INFO_FILE="${NEW_APP_DIR}/info"
+    cat > "$INFO_FILE" << EOF
+# Copyright (c) 2024 Fmstrat
+# All rights reserved.
+#
+# SPDX-License-Identifier: Proprietary
+
+# GNOME shortcut name
+NAME="${APP_FILENAME}"
+
+# Used for descriptions and window class
+FULL_NAME="${FULL_NAME}"
+
+# The executable inside windows
+WIN_EXECUTABLE="${EXECUTABLE}"
+
+# GNOME categories
+CATEGORIES="${CATEGORY}"
+
+# GNOME mimetypes
+MIME_TYPES="application/x-${APP_FILENAME};"
+EOF
+
+    # 4. Solicită și copiază pictograma
+    ICON_PATH=$(yad --file --title="WinApps Launcher - Step 5/5: Select Icon (icon.svg)" --text="Select the icon file for $APP_FILENAME" --width=600 --on-top --add-preview --file-filter="Icon Files | *.svg | *.png | *.xpm | All Files | *")
+    local ICON_SOURCE_PERSISTENT="${NEW_APP_DIR}/icon.svg"
+
+    if [ -n "$ICON_PATH" ]; then
+        if cp "$ICON_PATH" "$ICON_SOURCE_PERSISTENT"; then
+            echo -e "${DEBUG_TEXT}> COPIED ICON TO: '${ICON_SOURCE_PERSISTENT}'${RESET_TEXT}"
+        else
+            show_error_message "WARNING: Failed to copy icon. Copy it manually to <i>${ICON_SOURCE_PERSISTENT}</i>"
+        fi
+    fi
+
+
+    # 5. COPIAZĂ FOLDERUL DE DATE ÎN LOCAȚIA IMPLICITĂ (Fixul de lansare)
+    local DEFAULT_APP_DEST="${WINAPPS_DEFAULT_APPS}/${APP_FILENAME}"
+    local ICON_SOURCE_DEFAULT="${DEFAULT_APP_DEST}/icon.svg"
+
+    mkdir -p "$WINAPPS_DEFAULT_APPS"
+
+    if cp -r "$NEW_APP_DIR" "$DEFAULT_APP_DEST"; then
+        echo -e "${STATUS_TEXT}> COPIED APP DATA TO DEFAULT LOCATION (LAUNCH FIX): '${DEFAULT_APP_DEST}'${RESET_TEXT}"
+    else
+        show_error_message "FATAL ERROR: Failed to copy application folder. Launching will fail."
+        return
+    fi
+
+
+    # 6. >>> FIX: CREEAZĂ SCRIPTUL DE LANSARE (PENTRU Launcher.sh - Sintaxa 'explore --app') <<<
+    LAUNCHER_SCRIPT="${BIN_PATH}/${APP_FILENAME}"
+    mkdir -p "$BIN_PATH"
+
+    # Reintrodu sintaxa 'explore --app' pentru a satisface cerința Launcher-ului
+    cat > "$LAUNCHER_SCRIPT" << EOF
+#!/usr/bin/env bash
+${WINAPPS_BIN_PATH} explore --app "$APP_FILENAME" "\$@"
+EOF
+
+    if chmod +x "$LAUNCHER_SCRIPT"; then
+        echo -e "${DEBUG_TEXT}> CREATED CENTRAL LAUNCHER SCRIPT (LAUNCHER MENU FIX): '${LAUNCHER_SCRIPT}'${RESET_TEXT}"
+    else
+        show_error_message "FATAL ERROR: Failed to make launcher executable."
+    fi
+
+
+    # 7. GENEREAZĂ SCURTĂTURA .DESKTOP (Sintaxa corectă pentru Desktop)
+
+    local DESKTOP_FILE_PATH="${XDG_DATA_HOME:-$HOME/.local/share}/applications/${APP_FILENAME}.desktop"
+    local LAUNCH_COMMAND_DESKTOP="${WINAPPS_BIN_PATH} ${APP_FILENAME} %F"
+
+    cat > "$DESKTOP_FILE_PATH" << EOF
+[Desktop Entry]
+Name=${FULL_NAME}
+Exec=${LAUNCH_COMMAND_DESKTOP}
+Terminal=false
+Type=Application
+Icon=${ICON_SOURCE_DEFAULT}
+StartupWMClass=${FULL_NAME}
+Comment=${FULL_NAME}
+Categories=${CATEGORY}
+MimeType=application/x-${APP_FILENAME};
+Keywords=${APP_FILENAME}
+EOF
+    echo -e "${DEBUG_TEXT}> CREATED MENU SHORTCUT: '${DESKTOP_FILE_PATH}'${RESET_TEXT}"
+
+
+    # 8. Adaugă scurtătură pe Desktop (Opțional)
+    if [ -d "$USER_DESKTOP_PATH" ]; then
+        cp "$DESKTOP_FILE_PATH" "$USER_DESKTOP_PATH/"
+        chmod +x "${USER_DESKTOP_PATH}/${APP_FILENAME}.desktop"
+    fi
+
+
+    # 9. Finalizare și Curățare Cache
+    if command -v update-desktop-database &> /dev/null; then
+        update-desktop-database "${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    fi
+
+    if command -v gtk-update-icon-cache &> /dev/null; then
+        gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2> /dev/null
+    fi
+
+    # 10. Afișează succes
+    show_success_message "<u>SUCCESS:</u> Application <i>'${FULL_NAME}'</i> created, copied, and registered!\nStart application from launcher or applications."
+}
+export -f create_new_application
+
 
 # Launch Windows
 function launch_windows() {
@@ -344,6 +515,7 @@ function generate_menu() {
         echo -e "${DEBUG_TEXT}> SKIPPING VM CONTROL IN 'manual' MODE${RESET_TEXT}"
             echo "menu:\
       ${MENU_APPLICATIONS}|\
+      ${MENU_CREATE_NEW}|\
       ${MENU_REDMOND}|\
       ${MENU_KILL}|\
       ${MENU_REFRESH}|\
@@ -400,6 +572,7 @@ function generate_menu() {
         "ON")
             echo "menu:\
 ${MENU_APPLICATIONS}|\
+${MENU_CREATE_NEW}|\
 ${MENU_REDMOND}|\
 ${MENU_PAUSE}|\
 ${MENU_HIBERNATE}|\
@@ -727,5 +900,5 @@ yad --notification \
     --listen \
     --no-middle \
     --text="WinApps Launcher" \
-    --image="${ICONS_PATH}/AppIcon.svg" \
+    --image="${ICONS_PATH}/AppIconLegacy.svg" \
     --command="menu" <&3
